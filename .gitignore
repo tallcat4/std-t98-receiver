@@ -1,0 +1,10 @@
+/build*/
+/dist/
+*.burst
+*.ambe
+*.llr
+*.cf32
+*.dll
+__pycache__/
+.pytest_cache/
+pytest-cache-files-*/
