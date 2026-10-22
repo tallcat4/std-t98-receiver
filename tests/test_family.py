@@ -35,7 +35,7 @@ def main():
     compiler = Path(os.environ.get('CC', r'C:\Strawberry\c\bin\gcc.exe'))
     with tempfile.TemporaryDirectory(prefix='t98-family-') as directory:
         tmp = Path(directory)
-        # Independent NumPy FFT oracle for the FFTW -> portable IFFT migration.
+        # Double-precision NumPy oracle for SPEAR's single-precision FFTW filter design.
         run(native, '--rx-taps', tmp/'rx.f32')
         nfft, ntaps, fs, baud, alpha = 8192, 520, 62500, 2400, .2
         f = np.fft.fftshift(np.fft.fftfreq(nfft, d=1/fs))
@@ -49,7 +49,7 @@ def main():
         impulse = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(spectrum)).real)
         taps = impulse[nfft//2-ntaps//2:nfft//2+ntaps//2] * np.kaiser(ntaps, 8)
         taps /= taps.sum()
-        np.testing.assert_allclose(np.fromfile(tmp/'rx.f32', dtype='<f4'), taps.astype(np.float32), rtol=1e-6, atol=1e-9)
+        np.testing.assert_allclose(np.fromfile(tmp/'rx.f32', dtype='<f4'), taps.astype(np.float32), rtol=1e-6, atol=1e-8)
         base = tmp/'fixture'
         run(native, '--fixture', base)
         bits, payload = read_bursts(tmp/'fixture.burst')
@@ -91,10 +91,13 @@ def main():
         output = unicode_dir/'\u53d7\u4fe1'
         arguments = [exe, '--input', iq, '--sample-rate', '1200000', '--center-freq', '350950000', '-o', output]
         start = time.perf_counter()
-        run(*arguments)
+        result = run(*arguments)
+        assert b'FFTW, PFB 64, band rate 400000' in result.stderr
         print(f'1 s IQ replay: {time.perf_counter()-start:.3f} s elapsed')
         assert Path(str(output)+'.burst').stat().st_size == 0
         run(*arguments, code=1)  # no overwrite
+        run(*arguments, '--pfb', '48', '--overwrite')
+        run(*arguments, '--sample-rate', '900000', '--overwrite', code=1)
         iq.write_bytes(b'bad')
         run(*arguments, '--overwrite', code=1)
         # Test actual dynamic library ABI, options, USB failure propagation.

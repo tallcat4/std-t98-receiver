@@ -40,9 +40,8 @@ private:
     std::vector<std::vector<float>> branch_taps_;   // [m][t]
     std::vector<std::vector<cf32>> delay_;          // [m] 各 branch の遅延線(長さ taps_per_branch_)
     std::vector<cf32> carry_;                        // M 未満の端数入力
-    // Portable unnormalised inverse DFT. Only 48/64 points; no FFTW DLL needed.
-    std::vector<cf32> buf_;
-    std::vector<std::complex<double>> roots_;
+    void* fft_ = nullptr;                            // FFTW plan
+    void* buf_ = nullptr;                            // M 点 in/out
     std::vector<float> proto_;
 };
 

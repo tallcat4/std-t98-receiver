@@ -41,6 +41,7 @@ Options:
   --freq-error HZ      Residual signal offset; positive shifts DSP tuning upward
   --seconds N          Stop after N seconds of input samples
   --sample-rate HZ     Input rate (default 1200000; e.g. 2400000)
+  --pfb 64|48          SPEAR PFB size (default 64; 48 for legacy comparisons)
   --center-freq HZ     IQ center frequency (live default: selected channel - 250 kHz)
   --input FILE         Replay little-endian complex float32 IQ; requires explicit
                        --sample-rate and --center-freq; no SDR library needed
@@ -89,7 +90,7 @@ int main(int argc, char** argv) {
         argv = pointers.data();
 #endif
         t98::RadioOptions radio;
-        int channel = 1;
+        int channel = 1, pfb = 64;
         std::string input, output = "output";
         double center = 0, error = 0, seconds = 0;
         bool ambe = false, llr = false, overwrite = false, list = false;
@@ -101,6 +102,7 @@ int main(int argc, char** argv) {
             else if (arg == "--version") { std::cout << "std-t98-receiver 0.2.0\n"; return 0; }
             else if (arg == "--channel") channel = integer(value(), arg, 1, 30);
             else if (arg == "--device") radio.device = integer(value(), arg, 0, 255);
+            else if (arg == "--pfb") { pfb = integer(value(), arg, 48, 64); if (pfb != 48 && pfb != 64) throw std::invalid_argument("--pfb must be 64 or 48"); }
             else if (arg == "--output" || arg == "-o") output = value();
             else if (arg == "--input") input = value();
             else if (arg == "--rtl-library") radio.library = value();
@@ -127,9 +129,9 @@ int main(int argc, char** argv) {
         spear::std_t98::ReceiverConfig cfg;
         cfg.in_rate = radio.rate;
         cfg.num_channels = 1; // Same SPEAR stages, only the selected channel is demodulated.
-        if (radio.rate % 300000 == 0) cfg.pfb_channels = 48;
-        else if (radio.rate % 400000 == 0) cfg.pfb_channels = 64;
-        else throw std::invalid_argument("Rate must be a multiple of 300000 or 400000 Hz (e.g. 1200000, 2400000, 4000000)");
+        cfg.pfb_channels = pfb;
+        if (radio.rate % (pfb * 6250) != 0)
+            throw std::invalid_argument("Rate must be a multiple of 400000 Hz for --pfb 64, or 300000 Hz for --pfb 48");
         cfg.freq_err_hz = frequency - center + error;
         if (std::abs(cfg.freq_err_hz) + 6250 >= radio.rate / 2.0) throw std::invalid_argument("Selected channel is outside the input IQ bandwidth");
         std::signal(SIGINT, stop);
@@ -141,6 +143,7 @@ int main(int argc, char** argv) {
         observer.frame = [&](const auto& frame) { writer.write(frame); };
         receiver.set_observer(std::move(observer));
         std::cerr << "CH " << channel << " (" << std::fixed << std::setprecision(5) << frequency / 1e6 << " MHz), " << radio.rate << " samples/s\n";
+        std::cerr << "SPEAR frontend: FFTW, PFB " << pfb << ", band rate " << pfb * 6250 << " samples/s\n";
         std::cerr << "Writing " << output << ".burst" << (ambe ? " + .ambe" : "") << (llr ? " + .llr" : "") << ". Ctrl+C to stop.\n";
         std::vector<spear::cf32> block(32768);
         uint64_t index = 0;

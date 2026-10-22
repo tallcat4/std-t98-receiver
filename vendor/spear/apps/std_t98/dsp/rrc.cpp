@@ -1,5 +1,9 @@
 #include "rrc.hpp"
 
+#include "spear/dsp/fftw_planner.hpp"
+
+#include <fftw3.h>
+
 #include <cmath>
 #include <complex>
 #include <mutex>
@@ -19,27 +23,22 @@ double bessel_i0(double x) {
     return sum;
 }
 std::vector<std::complex<double>> ifft(const std::vector<std::complex<double>>& X) {
-    // The filter designer always requests a power-of-two length. Portable
-    // radix-2 inverse FFT replaces FFTW; normalization and spectrum are unchanged.
-    const std::size_t N = X.size();
-    auto x = X;
-    for (std::size_t i = 1, j = 0; i < N; ++i) {
-        std::size_t bit = N >> 1;
-        for (; j & bit; bit >>= 1) j ^= bit;
-        j ^= bit;
-        if (i < j) std::swap(x[i], x[j]);
+    const int N = static_cast<int>(X.size());
+    auto* buf = fftwf_alloc_complex(static_cast<std::size_t>(N));
+    for (int i = 0; i < N; ++i) { buf[i][0] = static_cast<float>(X[i].real()); buf[i][1] = static_cast<float>(X[i].imag()); }
+    fftwf_plan plan;
+    {
+        std::lock_guard lk(spear::dsp::detail::fftw_planner_mutex());
+        plan = fftwf_plan_dft_1d(N, buf, buf, FFTW_BACKWARD, FFTW_ESTIMATE);
     }
-    for (std::size_t len = 2; len <= N; len <<= 1) {
-        const auto step = std::polar(1.0, 2 * std::numbers::pi / len);
-        for (std::size_t i = 0; i < N; i += len) {
-            std::complex<double> w{1, 0};
-            for (std::size_t j = 0; j < len/2; ++j) {
-                const auto a = x[i+j], b = x[i+j+len/2] * w;
-                x[i+j] = a+b; x[i+j+len/2] = a-b; w *= step;
-            }
-        }
+    fftwf_execute(plan);
+    std::vector<std::complex<double>> x(static_cast<std::size_t>(N));
+    for (int i = 0; i < N; ++i) x[i] = std::complex<double>(buf[i][0], buf[i][1]) / static_cast<double>(N);
+    {
+        std::lock_guard lk(spear::dsp::detail::fftw_planner_mutex());
+        fftwf_destroy_plan(plan);
     }
-    for (auto& v : x) v /= static_cast<double>(N);
+    fftwf_free(buf);
     return x;
 }
 } // namespace

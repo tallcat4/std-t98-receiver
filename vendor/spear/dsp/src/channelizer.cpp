@@ -1,9 +1,12 @@
 #include "spear/dsp/channelizer.hpp"
 
-#include <cmath>
-#include <numbers>
+#include <fftw3.h>
+
+#include "spear/dsp/fftw_planner.hpp"
 
 namespace spear::dsp {
+
+using detail::fftw_planner_mutex;
 
 PfbChannelizer::PfbChannelizer(std::size_t num_channels, double in_rate, const std::vector<float>& prototype)
     : m_(num_channels), in_rate_(in_rate), proto_(prototype) {
@@ -16,14 +19,20 @@ PfbChannelizer::PfbChannelizer(std::size_t num_channels, double in_rate, const s
         for (std::size_t m = 0; m < m_; ++m)
             branch_taps_[m][t] = proto_[t * m_ + m];
     delay_.assign(m_, std::vector<cf32>(taps_per_branch_, cf32{0.f, 0.f}));
-    buf_.resize(m_);
-    roots_.resize(m_ * m_);
-    for (std::size_t c = 0; c < m_; ++c)
-        for (std::size_t k = 0; k < m_; ++k)
-            roots_[c * m_ + k] = std::polar(1.0, 2 * std::numbers::pi * c * k / m_);
+    auto* buf = fftwf_alloc_complex(m_);
+    buf_ = buf;
+    {
+        std::lock_guard lk(fftw_planner_mutex());
+        // channelizer は IFFT(time->channel)。in-place。
+        fft_ = fftwf_plan_dft_1d(static_cast<int>(m_), buf, buf, FFTW_BACKWARD, FFTW_MEASURE);
+    }
 }
 
-PfbChannelizer::~PfbChannelizer() = default;
+PfbChannelizer::~PfbChannelizer() {
+    std::lock_guard lk(fftw_planner_mutex());
+    if (fft_) fftwf_destroy_plan(static_cast<fftwf_plan>(fft_));
+    if (buf_) fftwf_free(static_cast<fftwf_complex*>(buf_));
+}
 
 StageInfo PfbChannelizer::info() const {
     StageInfo s;
@@ -46,6 +55,7 @@ void PfbChannelizer::process(std::span<const cf32> in, std::vector<std::vector<c
     data.reserve(carry_.size() + in.size());
     data.insert(data.end(), carry_.begin(), carry_.end());
     data.insert(data.end(), in.begin(), in.end());
+    auto* buf = static_cast<fftwf_complex*>(buf_);
 
     std::size_t pos = 0;
     for (; pos + m_ <= data.size(); pos += m_) {
@@ -63,14 +73,11 @@ void PfbChannelizer::process(std::span<const cf32> in, std::vector<std::vector<c
             const auto& dl = delay_[m];
             const auto& tp = branch_taps_[m];
             for (std::size_t t = 0; t < taps_per_branch_; ++t) acc += dl[t] * tp[t];
-            buf_[m] = acc;
+            buf[m][0] = acc.real();
+            buf[m][1] = acc.imag();
         }
-        for (std::size_t c = 0; c < m_; ++c) {
-            std::complex<double> sum{};
-            for (std::size_t k = 0; k < m_; ++k)
-                sum += std::complex<double>(buf_[k]) * roots_[c * m_ + k];
-            outs[c].emplace_back(static_cast<float>(sum.real()), static_cast<float>(sum.imag()));
-        }
+        fftwf_execute(static_cast<fftwf_plan>(fft_));
+        for (std::size_t c = 0; c < m_; ++c) outs[c].emplace_back(buf[c][0], buf[c][1]);
     }
     carry_.assign(data.begin() + static_cast<long>(pos), data.end());
 }
