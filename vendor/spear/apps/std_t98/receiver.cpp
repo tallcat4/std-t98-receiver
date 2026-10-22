@@ -29,13 +29,14 @@ struct Receiver::Channel {
 };
 
 Receiver::Receiver(ReceiverConfig cfg) : cfg_(cfg) {
+    if (cfg_.num_channels != 1) throw std::invalid_argument("This receiver supports exactly one selected channel");
     const double post1 = cfg_.pfb_channels * cfg_.spacing_hz;   // 300 kHz
     const auto decim1 = static_cast<std::size_t>(std::llround(cfg_.in_rate / post1));
     resamp1_ = std::make_unique<dsp::FirDecimator<cf32>>("resamp1", cfg_.in_rate,
         dsp::design_lowpass(cfg_.in_rate, post1 * 0.45, 63), decim1);
     // PFB プロトタイプ: cutoff = bin/2、遷移 = cutoff/2(std-t98 と同じ)。taps = 48 × 8
     const double bin = cfg_.spacing_hz;
-    pfb_ = std::make_unique<dsp::PfbChannelizer>(static_cast<std::size_t>(cfg_.pfb_channels), post1,
+    pfb_ = std::make_unique<t98::CenterChannelizer>(static_cast<std::size_t>(cfg_.pfb_channels), post1,
         dsp::design_lowpass(post1, bin / 2.0, static_cast<std::size_t>(cfg_.pfb_channels) * 8 - 1));
     // channel map(std-t98 build_channel_map): 下側 15 ch は上位 bin、中心 = bin 0、上側は bin 1..14
     const int neg = cfg_.num_channels / 2, pos = cfg_.num_channels - neg - 1;

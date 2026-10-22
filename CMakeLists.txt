@@ -21,12 +21,11 @@ add_library(t98_dsp STATIC
   ${SPEAR}/apps/std_t98/dsp/symbol_sync.cpp
   ${SPEAR}/apps/std_t98/dsp/sync_correlator.cpp
   ${SPEAR}/dsp/src/fir.cpp
-  ${SPEAR}/dsp/src/channelizer.cpp
   ${SPEAR}/dsp/src/fftw_planner.cpp)
 target_include_directories(t98_dsp PRIVATE ${FFTW3F_INCLUDE_DIR})
 target_link_libraries(t98_dsp PUBLIC ${FFTW3F_LIBRARY})
 target_include_directories(t98_dsp PUBLIC
-  src/include ${SPEAR}/apps/std_t98 ${SPEAR}/dsp/include)
+  src src/include ${SPEAR}/apps/std_t98 ${SPEAR}/dsp/include)
 if(MSVC)
   target_compile_options(t98_dsp PUBLIC /utf-8 /permissive-)
 endif()
@@ -52,7 +51,8 @@ install(TARGETS std-t98 RUNTIME DESTINATION bin)
 
 include(CTest)
 if(BUILD_TESTING)
-  add_executable(t98-tests tests/native/test_main.cpp)
+  add_executable(t98-tests tests/native/test_main.cpp ${SPEAR}/dsp/src/channelizer.cpp)
+  target_include_directories(t98-tests PRIVATE ${FFTW3F_INCLUDE_DIR})
   target_include_directories(t98-tests PRIVATE ${SPEAR}/apps/std_t98/tests)
   target_link_libraries(t98-tests PRIVATE t98_io)
   if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/build/fftw/libfftw3f-3.dll")

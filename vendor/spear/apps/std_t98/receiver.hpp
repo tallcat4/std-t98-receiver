@@ -1,15 +1,6 @@
-// STD-T98 受信機 — 純 C++(Qt / UHD / Stream Bus 非依存)。
-//
-// radio.rx(in_rate = pfb_channels × spacing × resamp1 の整数倍: 1.2 Msps/48ch または 4 Msps/64ch)の cf32 を受け取り、30 チャネルを並列に復調してフレームを出す。
-//   in → resamp1(÷4 → 300 kHz)→ PFB 48ch(6.25 kHz/ch)→ [30ch] ×10 補間(62.5 kHz)
-//   → quadrature demod(315 Hz/level)→ RRC rx filter → ×0.23 → Gardner symbol sync → ×5
-//   → 同期語検出 → 192 シンボル → quantize → dewhiten → RICH / SACCH / PICH / TCH
-// ../std-t98-tools/std_t98_30ch_multi_rf_backend.py と同じ構成・定数。ただしフレームを出すかどうかは同期の状態機械
-// (捕捉 / フライホイール / 喪失、dsp/sync_correlator.hpp)と CRC だけで決める。squelch(電力の閾値)は持たない — 電力は AGC や
-// 会場の雑音で揺れ、閾値の近くで表示がちらつき、弱い局を切った(docs/apps/std_t98.md「チャネルの活動」)。
-//
-// 観測点(§1.1, §12 M3): Observer の各 hook が全チャネルの中間 stream を受け取る。App はそれを
-// Stream Bus に publish するだけで、この DSP コードには触れない。
+// SPEAR STD-T98 receiver adapted for exactly one selected channel.
+// The CLI mixes that channel to DC; CenterChannelizer extracts only bin 0.
+// Filter design, discriminator, symbol sync and frame sync remain SPEAR-derived.
 #pragma once
 
 #include "dsp/rrc.hpp"
@@ -17,7 +8,7 @@
 #include "dsp/sync_correlator.hpp"
 #include "protocol/protocol.hpp"
 #include "spear/core/types.hpp"
-#include "spear/dsp/channelizer.hpp"
+#include "center_channelizer.hpp"
 #include "spear/dsp/fir.hpp"
 #include "spear/dsp/stage.hpp"
 
@@ -34,7 +25,7 @@ namespace spear::std_t98 {
 struct ReceiverConfig {
     double in_rate = 1.2e6;          // radio.rx(300 kHz の整数倍)
     int    pfb_channels = 48;
-    int    num_channels = 30;
+    int    num_channels = 1;             // This tool accepts exactly one selected channel.
     double spacing_hz = 6250;
     int    resamp2 = 10;             // 6250 → 62500
     double baud = 2400;
@@ -117,7 +108,7 @@ private:
     ReceiverConfig cfg_;
     Observer obs_;
     std::unique_ptr<dsp::FirDecimator<cf32>> resamp1_;
-    std::unique_ptr<dsp::PfbChannelizer> pfb_;
+    std::unique_ptr<t98::CenterChannelizer> pfb_;
     std::vector<std::unique_ptr<Channel>> ch_;
     std::vector<ChannelMetrics> metrics_;
     std::vector<int> channel_map_;

@@ -1,7 +1,8 @@
 """Guard the imported RF/DSP code against accidental local simplification.
 
 The manifest records LF-normalized source hashes from the stated SPEAR commit.
-Only fir.cpp's documented platform guard is normalized back before comparison.
+The two receiver files have recorded single-channel adaptations. FIR's platform
+guard is normalized back; remaining files must match the original SPEAR hashes.
 """
 import hashlib
 import json
@@ -21,6 +22,7 @@ class SpearSources(unittest.TestCase):
                     code = code.replace(
                         '#if defined(_WIN32) || !defined(__GNUC__) || !defined(__x86_64__) || defined(__SANITIZE_THREAD__) || defined(__SANITIZE_ADDRESS__)',
                         '#if defined(__SANITIZE_THREAD__) || defined(__SANITIZE_ADDRESS__)')
+                expected = manifest.get('single_channel_adaptations', {}).get(relative, expected)
                 self.assertEqual(hashlib.sha256(code.encode('utf-8')).hexdigest(), expected)
 
 

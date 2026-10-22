@@ -143,7 +143,7 @@ int main(int argc, char** argv) {
         observer.frame = [&](const auto& frame) { writer.write(frame); };
         receiver.set_observer(std::move(observer));
         std::cerr << "CH " << channel << " (" << std::fixed << std::setprecision(5) << frequency / 1e6 << " MHz), " << radio.rate << " samples/s\n";
-        std::cerr << "SPEAR frontend: FFTW, PFB " << pfb << ", band rate " << pfb * 6250 << " samples/s\n";
+        std::cerr << "SPEAR frontend: single selected channel, polyphase " << pfb << ", band rate " << pfb * 6250 << " samples/s\n";
         std::cerr << "Writing " << output << ".burst" << (ambe ? " + .ambe" : "") << (llr ? " + .llr" : "") << ". Ctrl+C to stop.\n";
         std::vector<spear::cf32> block(32768);
         uint64_t index = 0;

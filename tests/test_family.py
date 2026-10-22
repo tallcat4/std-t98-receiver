@@ -92,7 +92,7 @@ def main():
         arguments = [exe, '--input', iq, '--sample-rate', '1200000', '--center-freq', '350950000', '-o', output]
         start = time.perf_counter()
         result = run(*arguments)
-        assert b'FFTW, PFB 64, band rate 400000' in result.stderr
+        assert b'single selected channel, polyphase 64, band rate 400000' in result.stderr
         print(f'1 s IQ replay: {time.perf_counter()-start:.3f} s elapsed')
         assert Path(str(output)+'.burst').stat().st_size == 0
         run(*arguments, code=1)  # no overwrite

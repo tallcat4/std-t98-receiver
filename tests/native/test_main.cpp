@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <numbers>
+#include <random>
 #include <stdexcept>
 
 using namespace spear;
@@ -83,6 +84,31 @@ void channelizer() {
     }
 }
 
+void single_channel_only() {
+    for (int count : {48, 64}) {
+        auto taps = dsp::design_lowpass(count * 6250., 3125, count * 8 - 1);
+        dsp::PfbChannelizer reference(count, count * 6250., taps);
+        t98::CenterChannelizer selected(count, count * 6250., taps);
+        std::mt19937 rng(98);
+        std::uniform_real_distribution<float> random(-1, 1);
+        std::vector<cf32> input(count * 100 + 17);
+        for (auto& x : input) x = {random(rng), random(rng)};
+        std::vector<std::vector<cf32>> full, one;
+        reference.process(input, full);
+        for (std::size_t pos = 0; pos < input.size(); pos += 37)
+            selected.process(std::span(input).subspan(pos, std::min<std::size_t>(37, input.size()-pos)), one);
+        CHECK(one.size() == 1 && one[0].size() == full[0].size());
+        for (std::size_t i = 0; i < one[0].size(); ++i) CHECK(std::abs(one[0][i] - full[0][i]) < 1e-6f);
+        CHECK(selected.info().group_delay_in == reference.info().group_delay_in);
+    }
+    ReceiverConfig cfg;
+    CHECK(cfg.num_channels == 1);
+    cfg.num_channels = 30;
+    bool rejected = false;
+    try { Receiver receiver(cfg); } catch (const std::invalid_argument&) { rejected = true; }
+    CHECK(rejected);
+}
+
 void output_format() {
     std::vector<uint8_t> payload(36);
     for (int i = 0; i < 36; ++i) payload[i] = static_cast<uint8_t>(i);
@@ -141,7 +167,7 @@ int main(int argc, char** argv) {
             for (int i = 0; i < 10; ++i) writer.write(f);
             return 0;
         }
-        protocol_vectors(); synchronization(); channelizer(); output_format(); silence_input(); std::cout << "40 golden protocol vectors, sync/flywheel, PFB, file format and receiver: passed\n";
+        protocol_vectors(); synchronization(); channelizer(); single_channel_only(); output_format(); silence_input(); std::cout << "40 golden protocol vectors, sync/flywheel, single-channel filter equivalence, file format and receiver: passed\n";
     }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

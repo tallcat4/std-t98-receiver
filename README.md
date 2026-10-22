@@ -2,8 +2,10 @@
 
 Windows PC + RTL-SDRで、指定したSTD-T98チャネルを`.burst`へ保存する小さな開発用CLIです。
 DSPはSPEARのC++受信処理を基にしています。GUI、音声合成、秘話解析、チャネル探索はありません。
-RF/DSP本体はSPEARのソースを採用し、PFB・受信フィルタのFFTもSPEARと同じFFTWです。
-既定は64分割PFB / 400 kHz帯域。RTL-SDRの1.2 Msps入力から3分の1へ間引いて接続します。
+RF/DSPはSPEAR由来のフィルタ・検波・同期処理を採用しています。
+**指定した1チャネル専用**です。前段も選択チャネルの出力だけを計算し、全チャネルの抽出や同時復調は行いません。
+SPEARのPFBと同じ係数・間引き位相・遅延を保ち、DCへ移した対象の成分だけを計算します。
+受信フィルタの係数設計には引き続きSPEARと同じFFTWを使います。
 
 ## Windowsで使う
 
@@ -62,7 +64,7 @@ python -m std_t98_cracker crack ..\std-t98-receiver\capture.burst --method linea
 
 IQ形式はlittle-endian float32のI,Q交互（1サンプル8 byte）。`.sigmf-data`でも中身がcf32_leなら読めますが、
 メタデータは読みません。sample rateと中心周波数を必ず指定してください。
-既定の64分割ではレートは400 kHzの整数倍。通常は1.2 Msps、2.4 Msps。実機が受け付けない設定はエラーになります。
+既定のポリフェーズ間引きではレートは400 kHzの整数倍。通常は1.2 Msps、2.4 Msps。実機が受け付けない設定はエラーになります。
 旧構成を比較する場合だけ`--pfb 48`を指定でき、その場合は300 kHzの整数倍です。
 
 CMakeでもビルドできます。FFTWのsingle-precision開発ライブラリが必要です。

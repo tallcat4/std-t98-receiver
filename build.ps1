@@ -14,11 +14,11 @@ try {
     $sources = @('src/input.cpp', 'src/output.cpp', 'vendor/spear/apps/std_t98/receiver.cpp',
         'vendor/spear/apps/std_t98/protocol/protocol.cpp', 'vendor/spear/apps/std_t98/dsp/rrc.cpp',
         'vendor/spear/apps/std_t98/dsp/symbol_sync.cpp', 'vendor/spear/apps/std_t98/dsp/sync_correlator.cpp',
-        'vendor/spear/dsp/src/fir.cpp', 'vendor/spear/dsp/src/channelizer.cpp', 'vendor/spear/dsp/src/fftw_planner.cpp')
+        'vendor/spear/dsp/src/fir.cpp', 'vendor/spear/dsp/src/fftw_planner.cpp')
     & $Compiler @flags src/main.cpp @sources build/fftw/libfftw3f-3.dll -lshell32 -o build/std-t98.exe
     if ($LASTEXITCODE) { throw 'Receiver compilation failed' }
     if (!$SkipTests) {
-        & $Compiler @flags '-Ivendor/spear/apps/std_t98/tests' tests/native/test_main.cpp @sources build/fftw/libfftw3f-3.dll -o build/t98-tests.exe
+        & $Compiler @flags '-Ivendor/spear/apps/std_t98/tests' tests/native/test_main.cpp vendor/spear/dsp/src/channelizer.cpp @sources build/fftw/libfftw3f-3.dll -o build/t98-tests.exe
         if ($LASTEXITCODE) { throw 'Test compilation failed' }
         Push-Location build
         try { & ./t98-tests.exe; if ($LASTEXITCODE) { throw 'Native tests failed' } } finally { Pop-Location }
