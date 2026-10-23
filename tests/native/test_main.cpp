@@ -1,4 +1,5 @@
 #include "input.hpp"
+#include "iq_queue.hpp"
 #include "output.hpp"
 #include "golden_vectors.hpp"
 #include "dsp/sync_correlator.hpp"
@@ -11,6 +12,7 @@
 #include <numbers>
 #include <random>
 #include <stdexcept>
+#include <thread>
 
 using namespace spear;
 using namespace spear::std_t98;
@@ -150,6 +152,35 @@ void silence_input() {
     CHECK(frames == 0);
     CHECK(!receiver.metrics(0).locked);
 }
+void iq_queue_continuity() {
+    // Mixed USB callback sizes and wraparound must preserve every I/Q pair.
+    t98::IqQueue queue(8);
+    const std::vector<unsigned char> first{0, 1, 2, 3, 4, 5};
+    const std::vector<unsigned char> second{6, 7, 8, 9, 10, 11};
+    std::vector<unsigned char> out(8);
+    CHECK(queue.push(first));
+    CHECK(queue.pop(std::span(out).first(4)) == 4);
+    CHECK(std::equal(out.begin(), out.begin() + 4, first.begin()));
+    CHECK(queue.push(second));
+    CHECK(queue.pop(out) == 8);
+    CHECK((out == std::vector<unsigned char>{4, 5, 6, 7, 8, 9, 10, 11}));
+    queue.finish(false);
+    CHECK(queue.pop(out) == 0);
+
+    t98::IqQueue overflow(4);
+    CHECK(overflow.push(std::span(first).first(4)));
+    CHECK(!overflow.push(std::span(first).first(2)));
+    bool rejected = false;
+    try { overflow.pop(out); } catch (const std::runtime_error&) { rejected = true; }
+    CHECK(rejected);
+
+    t98::IqQueue async;
+    std::thread producer([&] { async.push(first); async.finish(false); });
+    const auto received = async.pop(out);
+    producer.join();
+    CHECK(received == first.size());
+    CHECK(std::equal(out.begin(), out.begin() + first.size(), first.begin()));
+}
 int main(int argc, char** argv) {
     try {
         if (argc == 3 && std::string(argv[1]) == "--rx-taps") {
@@ -167,7 +198,7 @@ int main(int argc, char** argv) {
             for (int i = 0; i < 10; ++i) writer.write(f);
             return 0;
         }
-        protocol_vectors(); synchronization(); channelizer(); single_channel_only(); output_format(); silence_input(); std::cout << "40 golden protocol vectors, sync/flywheel, single-channel filter equivalence, file format and receiver: passed\n";
+        protocol_vectors(); synchronization(); channelizer(); single_channel_only(); output_format(); silence_input(); iq_queue_continuity(); std::cout << "40 golden protocol vectors, sync/flywheel, single-channel filter equivalence, IQ queue, file format and receiver: passed\n";
     }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

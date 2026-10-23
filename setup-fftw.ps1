@@ -18,6 +18,9 @@ try {
             [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $PSScriptRoot "build/fftw/$name"), $true)
         }
     } finally { $zip.Dispose() }
-    Copy-Item build/fftw/libfftw3f-3.dll build/libfftw3f-3.dll
+    if (!(Test-Path build/libfftw3f-3.dll) -or
+        (Get-FileHash build/libfftw3f-3.dll).Hash -ne (Get-FileHash build/fftw/libfftw3f-3.dll).Hash) {
+        Copy-Item build/fftw/libfftw3f-3.dll build/libfftw3f-3.dll
+    }
     Write-Host 'Ready: official FFTW x64 single-precision library in build/fftw'
 } finally { Pop-Location }

@@ -1,4 +1,5 @@
 #include "input.hpp"
+#include "dashboard.hpp"
 #include "output.hpp"
 #include "receiver.hpp"
 #include <chrono>
@@ -51,6 +52,7 @@ Options:
   --version            Show version
 
 Ctrl+C stops reception and closes the output. No audio or secret cracking runs here.
+Interactive terminals show a fixed frame dashboard; redirected logs use text lines.
 )";
 }
 double number(const std::string& text, const std::string& option) {
@@ -139,29 +141,42 @@ int main(int argc, char** argv) {
         auto source = input.empty() ? t98::open_rtl(radio) : t98::open_iq_file(std::filesystem::path(reinterpret_cast<const char8_t*>(input.c_str())));
         t98::Output writer(std::filesystem::path(reinterpret_cast<const char8_t*>(output.c_str())), ambe, llr, overwrite);
         spear::std_t98::Receiver receiver(cfg);
-        spear::std_t98::Observer observer;
-        observer.frame = [&](const auto& frame) { writer.write(frame); };
-        receiver.set_observer(std::move(observer));
         std::cerr << "CH " << channel << " (" << std::fixed << std::setprecision(5) << frequency / 1e6 << " MHz), " << radio.rate << " samples/s\n";
         std::cerr << "SPEAR frontend: single selected channel, polyphase " << pfb << ", band rate " << pfb * 6250 << " samples/s\n";
         std::cerr << "Writing " << output << ".burst" << (ambe ? " + .ambe" : "") << (llr ? " + .llr" : "") << ". Ctrl+C to stop.\n";
-        std::vector<spear::cf32> block(32768);
+        t98::Dashboard dashboard(channel, frequency, radio.rate, output, ambe, llr);
+        auto last_report = std::chrono::steady_clock::now();
+        bool drew_frame = false;
+        spear::std_t98::Observer observer;
+        observer.frame = [&](const auto& frame) {
+            writer.write(frame);
+            dashboard.on_frame(frame, receiver.metrics(0), writer.bursts());
+            drew_frame = true;
+            last_report = std::chrono::steady_clock::now();
+        };
+        receiver.set_observer(std::move(observer));
+        dashboard.refresh(receiver.metrics(0), writer.bursts());
+        std::vector<spear::cf32> block(8192);
         uint64_t index = 0;
         const uint64_t limit = seconds > 0 ? static_cast<uint64_t>(seconds * radio.rate) : std::numeric_limits<uint64_t>::max();
-        auto last_report = std::chrono::steady_clock::now();
+        bool last_locked = false;
         while (!stopping && index < limit) {
-            auto n = source->read(block);
+            auto n = source->read(block, [] { return stopping != 0; });
             if (!n) break;
             n = static_cast<std::size_t>(std::min<uint64_t>(n, limit - index));
+            drew_frame = false;
             receiver.process(std::span(block).first(n), index);
             index += n;
-            if (std::chrono::steady_clock::now() - last_report >= std::chrono::seconds(1)) {
-                const auto& m = receiver.metrics(0);
-                std::cerr << '\r' << (m.locked ? "SYNC" : "WAIT") << "  bursts=" << writer.bursts() << "  CRC OK=" << m.sacch_ok << "  power=" << std::setprecision(1) << m.power_db << " dB     " << std::flush;
+            const auto& m = receiver.metrics(0);
+            if ((!drew_frame && m.locked != last_locked) ||
+                std::chrono::steady_clock::now() - last_report >= dashboard.refresh_interval()) {
+                dashboard.refresh(m, writer.bursts());
                 last_report = std::chrono::steady_clock::now();
             }
+            last_locked = m.locked;
         }
-        std::cerr << "\nSaved " << writer.bursts() << " bursts (" << index << " IQ samples).\n";
+        dashboard.close();
+        std::cerr << "Saved " << writer.bursts() << " bursts (" << index << " IQ samples).\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';

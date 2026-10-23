@@ -1,10 +1,13 @@
 #include "input.hpp"
+#include "iq_queue.hpp"
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -26,7 +29,8 @@ public:
         if (!stream_) throw std::runtime_error("Cannot open IQ file: " + path.string());
         if (std::filesystem::file_size(path) % 8) throw std::runtime_error("cf32 IQ file must contain complete 8-byte I/Q samples");
     }
-    std::size_t read(std::span<spear::cf32> samples) override {
+    std::size_t read(std::span<spear::cf32> samples, bool (*stop_requested)()) override {
+        if (stop_requested && stop_requested()) return 0;
         stream_.read(reinterpret_cast<char*>(samples.data()), static_cast<std::streamsize>(samples.size_bytes()));
         if (stream_.bad()) throw std::runtime_error("Error reading IQ file");
         return static_cast<std::size_t>(stream_.gcount()) / 8;
@@ -77,14 +81,36 @@ class RtlInput final : public Input {
     Library library_;
     Device* device_ = nullptr;
     int (*close_)(Device*);
-    int (*read_)(Device*, void*, int, int*);
+    using Callback = void (*)(unsigned char*, uint32_t, void*);
+    int (*read_)(Device*, Callback, void*, uint32_t, uint32_t);
+    int (*cancel_)(Device*);
+    IqQueue queue_;
+    std::thread worker_;
+    std::atomic<bool> stopping_{false}, finished_{false};
     std::vector<unsigned char> bytes_;
+    static void receive(unsigned char* data, uint32_t size, void* context) {
+        auto& self = *static_cast<RtlInput*>(context);
+        if (self.stopping_ || !self.queue_.push({data, size})) self.cancel_(self.device_);
+    }
 public:
     explicit RtlInput(const std::string& library) : library_(library) {
         close_ = library_.get<decltype(close_)>("rtlsdr_close");
-        read_ = library_.get<decltype(read_)>("rtlsdr_read_sync");
+        read_ = library_.get<decltype(read_)>("rtlsdr_read_async");
+        cancel_ = library_.get<decltype(cancel_)>("rtlsdr_cancel_async");
     }
-    ~RtlInput() override { if (device_) close_(device_); }
+    ~RtlInput() override {
+        stopping_ = true;
+        if (worker_.joinable()) {
+            // Cancellation before read_async starts is ignored by librtlsdr.
+            // Retry until the worker exits, including on an immediate Ctrl+C.
+            while (!finished_) {
+                cancel_(device_);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            worker_.join();
+        }
+        if (device_) close_(device_);
+    }
     void configure(const RadioOptions& o) {
         auto count = library_.get<uint32_t(*)()>("rtlsdr_get_device_count");
         if (o.device >= count()) throw std::runtime_error("RTL-SDR device not found. Connect it, install WinUSB (Interface 0), then run --list-devices.");
@@ -117,14 +143,20 @@ public:
         }
         check(reset(device_), "reset buffer");
     }
-    std::size_t read(std::span<spear::cf32> samples) override {
+    std::size_t read(std::span<spear::cf32> samples, bool (*stop_requested)()) override {
+        if (samples.empty() || (stop_requested && stop_requested())) return 0;
+        if (!worker_.joinable()) worker_ = std::thread([this] {
+            // Keep USB transfers queued while the caller demodulates or writes.
+            // 16 KiB transfers arrive every ~6.8 ms at 1.2 Msps.
+            const int result = read_(device_, receive, this, 16, 16384);
+            queue_.finish(result < 0 || !stopping_);
+            finished_ = true;
+        });
         bytes_.resize(samples.size() * 2);
-        int received = 0;
-        check(read_(device_, bytes_.data(), static_cast<int>(bytes_.size()), &received), "read samples (USB disconnected?)");
-        if (received <= 0 || received % 2 || static_cast<std::size_t>(received) > bytes_.size()) throw std::runtime_error("Invalid RTL-SDR read length");
-        for (std::size_t i = 0; i < static_cast<std::size_t>(received) / 2; ++i)
+        const auto received = queue_.pop(bytes_, stop_requested);
+        for (std::size_t i = 0; i < received / 2; ++i)
             samples[i] = {(bytes_[2*i] - 127.5f) / 128.f, (bytes_[2*i+1] - 127.5f) / 128.f};
-        return static_cast<std::size_t>(received) / 2;
+        return received / 2;
     }
     static void check(int result, const char* operation) {
         if (result < 0) throw std::runtime_error(std::string("librtlsdr: cannot ") + operation + " (" + std::to_string(result) + ")");

@@ -18,7 +18,7 @@ struct RadioOptions {
 class Input {
 public:
     virtual ~Input() = default;
-    virtual std::size_t read(std::span<spear::cf32> samples) = 0;
+    virtual std::size_t read(std::span<spear::cf32> samples, bool (*stop_requested)() = nullptr) = 0;
 };
 std::unique_ptr<Input> open_iq_file(const std::filesystem::path& path);
 std::unique_ptr<Input> open_rtl(const RadioOptions& options);

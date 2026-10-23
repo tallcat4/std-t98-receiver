@@ -32,11 +32,11 @@ USBドライバーは[Zadig](https://zadig.akeo.ie/)でRTL-SDRのInterface 0にW
 .\build\std-t98.exe --input recording.cf32 --sample-rate 1200000 --center-freq 350950000 --channel 1 -o replay
 ```
 
-停止はCtrl+C。`capture.burst`と、soft FEC用の`capture.llr`を保存します。
-`.ambe`も必要なら`--ambe`を追加します。その他のオプションは`--help`で確認できます。
+`capture.burst`と、soft FEC用の`capture.llr`を保存します。
 
 IQ入力はI/Q交互のlittle-endian float32です。収録時のサンプルレートと中心周波数を指定してください。
 周波数の補正には`--ppm`（ドングル）または`--freq-error HZ`（残留ずれ）を使います。
+`Bursts`に対して`CRC`の正常数が少ない場合は周波数補正とゲインを調整してください。内部キューがあふれた場合はエラーを表示して停止します。
 
 解析は[std-t98-cracker](https://github.com/tallcat4/std-t98-cracker)、音声化は[std-t98-vocode](https://github.com/tallcat4/std-t98-vocode)を使います。
 [ファイル形式](FORMAT.md) / [DSPの由来](PROVENANCE.md)
