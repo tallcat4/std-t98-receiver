@@ -81,6 +81,10 @@ ctest --test-dir build-cmake -C Release --output-on-failure
 `build.ps1`は40組のSPEAR由来プロトコルベクトル、同期捕捉/喪失、PFB、出力形式を検証します。
 3リポジトリを隣同士に配置して各ビルドを済ませれば、親フォルダから
 `python std-t98-receiver/tests/test_family.py`で受け渡し、実ボコーダーWAV、模擬RTL DLL、日本語パスを検証できます（NumPyが必要）。
-**実ドングルと実無線による受信感度・安定性の検証は未実施です。** 合成データ/模擬DLLの合格はRF実測の代わりにはなりません。
+2026-10-23、Windows + RTL-SDR Blog V4 + 実無線機（CH1・秘話OFF）で記録したIQを検証しました。
+1.2 Msps、gain 19.7 dB、残留ずれ `--freq-error -330` の手動補正で、
+9.92秒分の124バーストを保存、SACCH CRCは124件正常、音声496フレームすべてがFEC検査を通過しました。
+vocodeでWAV生成まで確認しています。聴感品質、受信感度、長時間安定性は別途確認が必要です。
+この補正値は試験時の機器の組み合わせで得た値であり、他の機器へ一律に適用する値ではありません。
 
 移植範囲と変更点は[PROVENANCE.md](PROVENANCE.md)。
