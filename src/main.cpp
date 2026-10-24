@@ -1,4 +1,5 @@
 #include "input.hpp"
+#include "config.hpp"
 #include "dashboard.hpp"
 #include "output.hpp"
 #include "receiver.hpp"
@@ -31,6 +32,7 @@ void help() {
   std-t98 --input recording.cf32 --sample-rate 1200000 --center-freq 351293750 --channel 1
 
 Options:
+  --config FILE        Load RF defaults (key=value); command-line values win
   --channel N          Registered channel 1..30 (default 1)
   -o, --output BASE    Output basename (default output; writes BASE.burst)
   --ambe               Also write legacy BASE.ambe (no burst markers)
@@ -97,9 +99,28 @@ int main(int argc, char** argv) {
         double center = 0, error = 0, seconds = 0;
         bool ambe = false, llr = false, overwrite = false, list = false;
         bool rate_given = false, center_given = false;
+        // Load configuration first, even when --config follows CLI overrides.
+        std::vector<std::string> cli, args;
+        bool config_given = false;
+        const std::set<std::string> flags{"--help", "-h", "--version", "--ambe", "--llr", "--overwrite", "--list-devices"};
         for (int i = 1; i < argc; ++i) {
             const std::string arg = argv[i];
-            auto value = [&]() -> std::string { if (++i >= argc) throw std::invalid_argument("Missing value for " + arg); return argv[i]; };
+            if (arg == "--help" || arg == "-h") { help(); return 0; }
+            if (arg == "--version") { std::cout << "std-t98-receiver 0.2.0\n"; return 0; }
+            if (arg == "--config") {
+                if (config_given) throw std::invalid_argument("Specify --config only once");
+                if (++i >= argc) throw std::invalid_argument("Missing value for --config");
+                args = t98::read_rf_config(std::filesystem::path(reinterpret_cast<const char8_t*>(argv[i])));
+                config_given = true;
+            } else {
+                cli.push_back(arg);
+                if (!flags.contains(arg) && i + 1 < argc) cli.emplace_back(argv[++i]);
+            }
+        }
+        args.insert(args.end(), cli.begin(), cli.end());
+        for (std::size_t i = 0; i < args.size(); ++i) {
+            const std::string arg = args[i];
+            auto value = [&]() -> std::string { if (++i >= args.size()) throw std::invalid_argument("Missing value for " + arg); return args[i]; };
             if (arg == "--help" || arg == "-h") { help(); return 0; }
             else if (arg == "--version") { std::cout << "std-t98-receiver 0.2.0\n"; return 0; }
             else if (arg == "--channel") channel = integer(value(), arg, 1, 30);
@@ -142,6 +163,7 @@ int main(int argc, char** argv) {
         t98::Output writer(std::filesystem::path(reinterpret_cast<const char8_t*>(output.c_str())), ambe, llr, overwrite);
         spear::std_t98::Receiver receiver(cfg);
         std::cerr << "CH " << channel << " (" << std::fixed << std::setprecision(5) << frequency / 1e6 << " MHz), " << radio.rate << " samples/s\n";
+        std::cerr << "RF correction: " << radio.ppm << " ppm, residual " << std::setprecision(1) << error << " Hz\n";
         std::cerr << "SPEAR frontend: single selected channel, polyphase " << pfb << ", band rate " << pfb * 6250 << " samples/s\n";
         std::cerr << "Writing " << output << ".burst" << (ambe ? " + .ambe" : "") << (llr ? " + .llr" : "") << ". Ctrl+C to stop.\n";
         t98::Dashboard dashboard(channel, frequency, radio.rate, output, ambe, llr);

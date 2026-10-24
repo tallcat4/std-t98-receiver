@@ -36,6 +36,16 @@ USBドライバーは[Zadig](https://zadig.akeo.ie/)でRTL-SDRのInterface 0にW
 
 IQ入力はI/Q交互のlittle-endian float32です。収録時のサンプルレートと中心周波数を指定してください。
 周波数の補正には`--ppm`（ドングル）または`--freq-error HZ`（残留ずれ）を使います。
+`--freq-error -330`なら、公称周波数より330 Hz低い信号に合わせます。補正値は実測で決めてください。
+RF設定は`receiver.example.conf`を参考に`key = value`形式で保存し、`--config FILE`で読み込めます。
+対応項目は`device`・`gain`・`ppm`・`freq-error`・`sample-rate`・`pfb`。`#`以降はコメントで、コマンドライン指定が優先されます。
+
+```powershell
+Copy-Item receiver.example.conf receiver.conf
+# receiver.confに実測した補正値・ゲインを設定して受信
+.\build\std-t98.exe --config receiver.conf --channel 2 --llr -o capture2
+```
+
 `Bursts`に対して`CRC`の正常数が少ない場合は周波数補正とゲインを調整してください。内部キューがあふれた場合はエラーを表示して停止します。
 
 解析は[std-t98-cracker](https://github.com/tallcat4/std-t98-cracker)、音声化は[std-t98-vocode](https://github.com/tallcat4/std-t98-vocode)を使います。
